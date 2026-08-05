@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+# The installer is piped straight into bash, CRLF would break the shebang.
+*.sh text eol=lf
+*.py text eol=lf
+*.php text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
