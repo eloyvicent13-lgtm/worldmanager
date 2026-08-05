@@ -34,15 +34,33 @@ rm -rf "${PANEL_DIR}/resources/scripts/worldmanager"
 rm -f "${PANEL_DIR}/routes/worldmanager.php"
 ok "files removed"
 
-if [ "${SKIP_BUILD:-0}" != "1" ] && command -v yarn >/dev/null 2>&1; then
-    info "Rebuilding the panel frontend"
-    pushd "$PANEL_DIR" >/dev/null
-    NODE_OPTIONS="--max-old-space-size=4096" yarn build:production
-    popd >/dev/null
-    ok "assets rebuilt"
+# Restoring the assets captured before the install is exact and instant; a
+# rebuild is only a fallback for installs made before asset backups existed.
+ASSET_BACKUP="${STATE_DIR}/assets-backup"
+
+if [ -d "$ASSET_BACKUP" ]; then
+    info "Restoring the compiled assets from before the install"
+    for item in assets mix-manifest.json build; do
+        if [ -e "${ASSET_BACKUP}/${item}" ]; then
+            rm -rf "${PANEL_DIR}/public/${item}"
+            cp -r "${ASSET_BACKUP}/${item}" "${PANEL_DIR}/public/${item}"
+        fi
+    done
+    ok "assets restored"
+elif [ "${SKIP_BUILD:-0}" != "1" ] && command -v yarn >/dev/null 2>&1; then
+    info "No asset backup found, rebuilding the panel frontend instead"
+    if (cd "$PANEL_DIR" && NODE_OPTIONS="--max-old-space-size=4096" yarn build:production); then
+        ok "assets rebuilt"
+    else
+        warn "the rebuild failed - the panel sources are clean, but the served assets are still the old ones"
+        warn "reinstall your theme, or run 'yarn build:production' in ${PANEL_DIR} once the build works"
+    fi
 else
     warn "run 'yarn build:production' in ${PANEL_DIR} to drop the sidebar entry from the compiled assets"
 fi
+
+WEB_USER="$(stat -c '%U' "${PANEL_DIR}/storage" 2>/dev/null || echo www-data)"
+chown -R "${WEB_USER}:${WEB_USER}" "${PANEL_DIR}/public" 2>/dev/null || true
 
 (cd "$PANEL_DIR" && php artisan optimize:clear >/dev/null)
 rm -rf "${STATE_DIR}"

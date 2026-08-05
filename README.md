@@ -121,6 +121,7 @@ app/WorldManager/                      lógica y controlador
 routes/worldmanager.php                rutas de la API cliente
 resources/scripts/worldmanager/        interfaz React
 .world-manager/                        copias de seguridad, versión y patch.py
+.world-manager/assets-backup/          public/assets tal como estaban antes de instalar
 ```
 
 Parcheados (con marcadores `world-manager` y copia de seguridad previa):
@@ -183,6 +184,41 @@ Sin este último parche el addon funciona igual, pero el enlace aparecerá tambi
 servidores que no son de Minecraft (donde la página devolverá 404).
 
 ---
+
+## Si el panel se rompe
+
+El instalador guarda `public/assets`, `public/mix-manifest.json` y `public/build` en
+`.world-manager/assets-backup/` **antes** de tocar nada, y revierte todo solo si la
+compilación falla. La desinstalación restaura esa copia en vez de recompilar, así que la
+vuelta atrás es exacta aunque tu tema no se pueda compilar desde el código.
+
+Si vienes de una instalación anterior a esta protección y el panel sigue roto tras
+desinstalar, comprueba primero que los fuentes están limpios:
+
+```bash
+grep -rn "world-manager" /var/www/pterodactyl/routes /var/www/pterodactyl/resources/scripts | head
+ls /var/www/pterodactyl/app/WorldManager /var/www/pterodactyl/resources/scripts/worldmanager 2>&1
+```
+
+Si no sale nada, el addon ya no está y lo que queda roto son los assets compilados:
+recompílalos, o reinstala tu tema si trae los suyos ya construidos.
+
+```bash
+cd /var/www/pterodactyl && NODE_OPTIONS=--max-old-space-size=4096 yarn build:production
+```
+
+Después recarga con **Ctrl+F5** (el navegador cachea el bundle antiguo).
+
+### El error "An error was encountered by the application while rendering this view"
+
+Es el ErrorBoundary de React, y en Pterodactyl **no cubre la barra lateral**: un fallo
+pintando el menú tumba toda la vista del servidor. La causa habitual en temas
+personalizados es que sus rutas llevan un campo `icon` obligatorio. El parcheador lo
+detecta y añade `icon: faGlobe` cuando el tema usa FontAwesome; si usa otra librería de
+iconos, aborta y te pide hacerlo a mano en vez de dejar el panel roto.
+
+Para saber qué falla exactamente, abre la consola del navegador (F12) en la página del
+servidor: el error real aparece ahí con el nombre del componente.
 
 ## Notas de mantenimiento
 

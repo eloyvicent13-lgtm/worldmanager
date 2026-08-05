@@ -72,24 +72,74 @@ echo "$VERSION" > "${STATE_DIR}/version"
 echo "$REPO" > "${STATE_DIR}/repo"
 ok "files copied (version ${VERSION})"
 
+# ------------------------------------------------------- compiled asset backup
+#
+# The rebuild is the only step that cannot be undone by restoring source files:
+# themes that ship pre-built assets may not survive a plain `yarn build`. Keep a
+# copy of whatever is currently served so an uninstall (or a failed build) can
+# put the panel back exactly as it was.
+
+ASSET_BACKUP="${STATE_DIR}/assets-backup"
+
+backup_assets() {
+    if [ -d "$ASSET_BACKUP" ]; then
+        return 0
+    fi
+    mkdir -p "$ASSET_BACKUP"
+    for item in assets mix-manifest.json build; do
+        if [ -e "${PANEL_DIR}/public/${item}" ]; then
+            cp -r "${PANEL_DIR}/public/${item}" "${ASSET_BACKUP}/"
+        fi
+    done
+    ok "saved a copy of the current compiled assets"
+}
+
+restore_assets() {
+    if [ ! -d "$ASSET_BACKUP" ]; then
+        return 1
+    fi
+    for item in assets mix-manifest.json build; do
+        if [ -e "${ASSET_BACKUP}/${item}" ]; then
+            rm -rf "${PANEL_DIR}/public/${item}"
+            cp -r "${ASSET_BACKUP}/${item}" "${PANEL_DIR}/public/${item}"
+        fi
+    done
+    return 0
+}
+
+info "Backing up compiled assets"
+backup_assets
+
 # -------------------------------------------------------------------- patching
 
 info "Patching panel sources"
 if ! python3 "${STATE_DIR}/patch.py" apply --panel "$PANEL_DIR"; then
     warn "one or more patches failed - see the messages above and README.md"
-    warn "re-run with --allow-partial semantics by fixing the file manually, then run this installer again"
+    python3 "${STATE_DIR}/patch.py" revert --panel "$PANEL_DIR" >/dev/null 2>&1 || true
     exit 1
 fi
 
 # --------------------------------------------------------------------- rebuild
 
+rollback() {
+    warn "rolling back: reverting patches and restoring the previous assets"
+    python3 "${STATE_DIR}/patch.py" revert --panel "$PANEL_DIR" || true
+    rm -rf "${PANEL_DIR}/app/WorldManager" "${PANEL_DIR}/resources/scripts/worldmanager"
+    rm -f "${PANEL_DIR}/routes/worldmanager.php"
+    restore_assets && ok "previous assets restored" || warn "no asset backup to restore"
+    (cd "$PANEL_DIR" && php artisan optimize:clear >/dev/null 2>&1) || true
+}
+
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
     if command -v yarn >/dev/null 2>&1; then
         info "Rebuilding the panel frontend (this takes a few minutes)"
-        pushd "$PANEL_DIR" >/dev/null
-        yarn install --frozen-lockfile >/dev/null 2>&1 || yarn install >/dev/null
-        NODE_OPTIONS="--max-old-space-size=4096" yarn build:production
-        popd >/dev/null
+        yarn --cwd "$PANEL_DIR" install --frozen-lockfile >/dev/null 2>&1 \
+            || yarn --cwd "$PANEL_DIR" install >/dev/null 2>&1 || true
+
+        if ! (cd "$PANEL_DIR" && NODE_OPTIONS="--max-old-space-size=4096" yarn build:production); then
+            rollback
+            fail "the frontend build failed. Your panel has been restored to its previous state."
+        fi
         ok "assets rebuilt"
     else
         warn "yarn not found - the sidebar entry will not appear until you run 'yarn build:production' in ${PANEL_DIR}"

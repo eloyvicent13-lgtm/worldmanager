@@ -33,12 +33,13 @@ ROUTE_ENTRY = """        // world-manager:start
             path: '/world-manager',
             permission: 'file.*',
             name: 'World Manager',
-            component: WorldManagerContainer,
+%s            component: WorldManagerContainer,
         },
         // world-manager:end
 """
 
 ROUTES_IMPORT = "import WorldManagerContainer from '@/worldmanager/WorldManagerContainer'; // world-manager"
+ICON_IMPORT = "import { faGlobe } from '@fortawesome/free-solid-svg-icons'; // world-manager"
 GUARD_IMPORT = "import WorldManagerGuard from '@/worldmanager/WorldManagerGuard'; // world-manager"
 GUARD_ELEMENT = "<WorldManagerGuard />{/* world-manager */}"
 
@@ -113,19 +114,39 @@ def patch_routes_ts(panel):
             "Add the World Manager entry by hand, see README.md."
         )
 
+    # Themes that draw an icon next to every sidebar entry add an `icon` field to
+    # the route definition and render it unconditionally. Leaving it out makes the
+    # icon component throw, which takes down the whole server view, so match the
+    # shape the file already uses.
+    note = ""
+    icon_line = ""
+    if re.search(r"^\s*icon:\s*\S", contents, re.MULTILINE):
+        if not re.search(r"^\s*icon:\s*fa[A-Z]\w*", contents, re.MULTILINE):
+            raise PatchError(
+                "routes.ts gives every route an 'icon' that is not a FontAwesome "
+                "definition, so the right value cannot be guessed. Add the World "
+                "Manager entry by hand using the same icon style, see README.md."
+            )
+        icon_line = "            icon: faGlobe,\n"
+        note = " with a FontAwesome icon"
+
     backup(panel, relative)
     contents = insert_after_imports(contents, ROUTES_IMPORT)
+    if icon_line and "faGlobe" not in contents:
+        contents = insert_after_imports(contents, ICON_IMPORT)
+
+    entry = ROUTE_ENTRY % icon_line
 
     # Preferred: append as the last server route so it lands at the bottom of the
     # sidebar. Falls back to the top of the list on themes that restructured the file.
     tail = re.search(r"^\s*\],\s*\n\}\s*as Routes;", contents, re.MULTILINE)
     if tail:
-        write(path, contents[: tail.start()] + ROUTE_ENTRY + contents[tail.start() :])
-        return "patched"
+        write(path, contents[: tail.start()] + entry + contents[tail.start() :])
+        return "patched" + note
 
     head = re.search(r"^\s*server:\s*\[\s*$", contents, re.MULTILINE)
-    write(path, contents[: head.end() + 1] + ROUTE_ENTRY + contents[head.end() + 1 :])
-    return "patched (inserted at the top of the list)"
+    write(path, contents[: head.end() + 1] + entry + contents[head.end() + 1 :])
+    return "patched%s (inserted at the top of the list)" % note
 
 
 def patch_server_router(panel):
