@@ -3,14 +3,19 @@
 namespace Pterodactyl\WorldManager;
 
 /**
- * Minimal parser/serialiser for Minecraft's server.properties.
+ * Parser/serialiser for Minecraft's server.properties.
  *
- * Comments, blank lines and key order of the original file are preserved so
- * editing a handful of settings never rewrites the user's whole file.
+ * The file follows the java.util.Properties format, so values are escaped:
+ * Minecraft writes `level-type=minecraft\:normal`. Values are unescaped on the
+ * way in and escaped again on the way out.
+ *
+ * Comments, blank lines and key order are preserved, and untouched keys keep
+ * their original line verbatim, so editing one setting can never reformat the
+ * rest of the file.
  */
 class ServerProperties
 {
-    /** @var array<int, array{type: string, key?: string, value?: string, raw?: string}> */
+    /** @var array<int, array{type: string, raw: string, key?: string, value?: string, dirty?: bool}> */
     private array $lines = [];
 
     public static function parse(string $contents): self
@@ -26,8 +31,8 @@ class ServerProperties
                 continue;
             }
 
-            $position = strpos($line, '=');
-            if ($position === false) {
+            $position = self::separatorPosition($line);
+            if ($position === null) {
                 $instance->lines[] = ['type' => 'raw', 'raw' => $line];
 
                 continue;
@@ -35,8 +40,10 @@ class ServerProperties
 
             $instance->lines[] = [
                 'type' => 'pair',
-                'key' => trim(substr($line, 0, $position)),
-                'value' => trim(substr($line, $position + 1)),
+                'raw' => $line,
+                'key' => self::unescape(trim(substr($line, 0, $position))),
+                'value' => self::unescape(trim(substr($line, $position + 1))),
+                'dirty' => false,
             ];
         }
 
@@ -65,13 +72,16 @@ class ServerProperties
     {
         foreach ($this->lines as $index => $line) {
             if ($line['type'] === 'pair' && $line['key'] === $key) {
-                $this->lines[$index]['value'] = $value;
+                if ($line['value'] !== $value) {
+                    $this->lines[$index]['value'] = $value;
+                    $this->lines[$index]['dirty'] = true;
+                }
 
                 return $this;
             }
         }
 
-        $this->lines[] = ['type' => 'pair', 'key' => $key, 'value' => $value];
+        $this->lines[] = ['type' => 'pair', 'raw' => '', 'key' => $key, 'value' => $value, 'dirty' => true];
 
         return $this;
     }
@@ -90,11 +100,84 @@ class ServerProperties
     {
         $out = [];
         foreach ($this->lines as $line) {
-            $out[] = $line['type'] === 'pair'
-                ? $line['key'] . '=' . $line['value']
+            if ($line['type'] !== 'pair') {
+                $out[] = $line['raw'];
+
+                continue;
+            }
+
+            $out[] = $line['dirty']
+                ? self::escape($line['key'], true) . '=' . self::escape($line['value'])
                 : $line['raw'];
         }
 
         return implode("\n", $out);
+    }
+
+    /**
+     * Finds the first unescaped `=` or `:` separating the key from the value.
+     */
+    private static function separatorPosition(string $line): ?int
+    {
+        $length = strlen($line);
+        for ($i = 0; $i < $length; ++$i) {
+            if ($line[$i] === '\\') {
+                ++$i;
+
+                continue;
+            }
+            if ($line[$i] === '=' || $line[$i] === ':') {
+                return $i;
+            }
+        }
+
+        return null;
+    }
+
+    private static function unescape(string $value): string
+    {
+        return preg_replace_callback('/\\\\(u[0-9a-fA-F]{4}|.)/s', function (array $matches): string {
+            $escaped = $matches[1];
+
+            if ($escaped[0] === 'u' && strlen($escaped) === 5) {
+                $codepoint = hexdec(substr($escaped, 1));
+
+                return function_exists('mb_chr') ? (mb_chr($codepoint, 'UTF-8') ?: '') : '';
+            }
+
+            return match ($escaped) {
+                'n' => "\n",
+                'r' => "\r",
+                't' => "\t",
+                'f' => "\f",
+                default => $escaped,
+            };
+        }, $value) ?? $value;
+    }
+
+    /**
+     * Mirrors java.util.Properties#store, which escapes `=`, `:`, `#` and `!`
+     * in both keys and values, and additionally escapes spaces inside keys.
+     */
+    private static function escape(string $value, bool $isKey = false): string
+    {
+        $escaped = strtr($value, [
+            '\\' => '\\\\',
+            "\n" => '\\n',
+            "\r" => '\\r',
+            "\t" => '\\t',
+            "\f" => '\\f',
+            '=' => '\\=',
+            ':' => '\\:',
+            '#' => '\\#',
+            '!' => '\\!',
+        ]);
+
+        if ($isKey) {
+            return str_replace(' ', '\\ ', $escaped);
+        }
+
+        // A leading space would be swallowed by the reader.
+        return str_starts_with($escaped, ' ') ? '\\' . $escaped : $escaped;
     }
 }

@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
+import { faCog, faGamepad, faGlobe, faTachometerAlt, faUsers } from '@fortawesome/free-solid-svg-icons';
+import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { SETTING_SECTIONS, SettingField } from '@/worldmanager/settings';
 import { WorldSettings } from '@/worldmanager/api';
+import { Button, Card, CardHeader, Field, Toggle, inputClasses } from '@/worldmanager/ui';
 
 interface Props {
     settings: WorldSettings;
@@ -8,30 +11,29 @@ interface Props {
     onSave: (values: WorldSettings) => void;
 }
 
+const SECTION_ICONS: Record<string, IconDefinition> = {
+    World: faGlobe,
+    Gameplay: faGamepad,
+    Spawning: faCog,
+    Players: faUsers,
+    Performance: faTachometerAlt,
+};
+
 const isTrue = (value: string) => String(value).toLowerCase() === 'true';
 
-function Field({ field, value, onChange }: { field: SettingField; value: string; onChange: (v: string) => void }) {
-    const input = 'w-full rounded bg-neutral-900 px-3 py-2 text-sm text-neutral-100 border border-neutral-700';
-
+function Input({ field, value, onChange }: { field: SettingField; value: string; onChange: (v: string) => void }) {
     if (field.type === 'bool') {
-        return (
-            <label className={'flex cursor-pointer items-center gap-3'}>
-                <input
-                    type={'checkbox'}
-                    checked={isTrue(value)}
-                    onChange={(event) => onChange(event.currentTarget.checked ? 'true' : 'false')}
-                    className={'h-4 w-4 accent-cyan-500'}
-                />
-                <span className={'text-sm text-neutral-200'}>{field.label}</span>
-            </label>
-        );
+        return <Toggle label={field.label} checked={isTrue(value)} onChange={(on) => onChange(on ? 'true' : 'false')} />;
     }
 
     return (
-        <div>
-            <label className={'mb-1 block text-xs uppercase tracking-wide text-neutral-400'}>{field.label}</label>
+        <Field label={field.label} help={field.help}>
             {field.type === 'select' ? (
-                <select className={input} value={value} onChange={(event) => onChange(event.currentTarget.value)}>
+                <select
+                    className={inputClasses}
+                    value={value}
+                    onChange={(event) => onChange(event.currentTarget.value)}
+                >
                     {!field.options?.includes(value) && <option value={value}>{value || '—'}</option>}
                     {field.options?.map((option) => (
                         <option key={option} value={option}>
@@ -41,64 +43,62 @@ function Field({ field, value, onChange }: { field: SettingField; value: string;
                 </select>
             ) : (
                 <input
-                    className={input}
+                    className={inputClasses}
                     type={field.type === 'number' ? 'number' : 'text'}
                     value={value}
+                    placeholder={field.placeholder}
                     onChange={(event) => onChange(event.currentTarget.value)}
                 />
             )}
-        </div>
+        </Field>
     );
 }
 
 export default function SettingsTab({ settings, saving, onSave }: Props) {
     const [values, setValues] = useState<WorldSettings>(settings);
 
-    const dirty = SETTING_SECTIONS.some((section) =>
-        section.fields.some((field) => (values[field.key] ?? '') !== (settings[field.key] ?? ''))
-    );
+    const changed = SETTING_SECTIONS.flatMap((section) => section.fields)
+        .map((field) => field.key)
+        .filter((key) => (values[key] ?? '') !== (settings[key] ?? ''));
 
     return (
         <div>
-            <p className={'mb-4 text-sm text-neutral-400'}>
-                These values are written to <code className={'text-neutral-200'}>server.properties</code>. Minecraft
-                only reads them while starting, so restart the server to apply changes.
+            <p className={'mb-5 text-sm text-neutral-400'}>
+                Written to <code className={'rounded bg-neutral-800 px-1.5 py-0.5 text-neutral-200'}>server.properties</code>.
+                Minecraft reads these only while starting, so restart the server to apply them.
             </p>
 
-            <div className={'grid gap-4 lg:grid-cols-2'}>
+            <div className={'grid gap-5 xl:grid-cols-2'}>
                 {SETTING_SECTIONS.map((section) => (
-                    <div key={section.title} className={'rounded-lg bg-neutral-800 p-5'}>
-                        <h3 className={'mb-4 text-sm font-semibold uppercase tracking-wide text-neutral-300'}>
-                            {section.title}
-                        </h3>
-                        <div className={'space-y-4'}>
+                    <Card key={section.title} className={'h-fit'}>
+                        <CardHeader icon={SECTION_ICONS[section.title]} title={section.title} />
+                        <div className={'space-y-5 p-5'}>
                             {section.fields.map((field) => (
-                                <div key={field.key}>
-                                    <Field
-                                        field={field}
-                                        value={values[field.key] ?? ''}
-                                        onChange={(value) => setValues({ ...values, [field.key]: value })}
-                                    />
-                                    {field.help && <p className={'mt-1 text-xs text-neutral-500'}>{field.help}</p>}
-                                </div>
+                                <Input
+                                    key={field.key}
+                                    field={field}
+                                    value={values[field.key] ?? ''}
+                                    onChange={(value) => setValues({ ...values, [field.key]: value })}
+                                />
                             ))}
                         </div>
-                    </div>
+                    </Card>
                 ))}
             </div>
 
-            <div className={'mt-6 flex items-center gap-4'}>
-                <button
-                    type={'button'}
-                    disabled={!dirty || saving}
-                    onClick={() => onSave(values)}
-                    className={
-                        'rounded bg-cyan-600 px-5 py-2 text-sm font-medium text-white hover:bg-cyan-500 disabled:opacity-50'
-                    }
-                >
+            <div
+                className={
+                    'sticky bottom-0 mt-6 flex items-center gap-4 rounded-xl border border-neutral-700 bg-neutral-800 bg-opacity-95 px-5 py-4 shadow-lg'
+                }
+            >
+                <Button variant={'primary'} disabled={changed.length === 0 || saving} onClick={() => onSave(values)}>
                     {saving ? 'Saving…' : 'Save settings'}
-                </button>
-                {dirty && !saving && <span className={'text-sm text-neutral-400'}>You have unsaved changes.</span>}
+                </Button>
+                <span className={'text-sm text-neutral-400'}>
+                    {changed.length === 0
+                        ? 'No changes.'
+                        : `${changed.length} unsaved change${changed.length === 1 ? '' : 's'}: ${changed.join(', ')}`}
+                </span>
             </div>
         </div>
     );

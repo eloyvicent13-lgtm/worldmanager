@@ -2,6 +2,7 @@ export interface SettingField {
     key: string;
     label: string;
     help?: string;
+    placeholder?: string;
     type: 'bool' | 'number' | 'text' | 'select';
     options?: string[];
 }
@@ -23,13 +24,21 @@ export const SETTING_SECTIONS: SettingSection[] = [
                 key: 'level-seed',
                 label: 'Seed',
                 type: 'text',
+                placeholder: 'Random',
                 help: 'Only used when the world is generated for the first time.',
             },
             {
                 key: 'level-type',
                 label: 'World type',
-                type: 'text',
-                help: 'e.g. minecraft:normal, minecraft:flat, minecraft:large_biomes, minecraft:amplified.',
+                type: 'select',
+                options: [
+                    'minecraft:normal',
+                    'minecraft:flat',
+                    'minecraft:large_biomes',
+                    'minecraft:amplified',
+                    'minecraft:single_biome_surface',
+                ],
+                help: 'Older versions use the unprefixed names (default, FLAT, AMPLIFIED).',
             },
             { key: 'generate-structures', label: 'Generate structures', type: 'bool' },
             { key: 'allow-nether', label: 'Allow the Nether', type: 'bool' },

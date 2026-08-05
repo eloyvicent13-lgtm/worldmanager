@@ -129,7 +129,7 @@ Parcheados (con marcadores `world-manager` y copia de seguridad previa):
 ```
 routes/api-client.php                  monta el grupo de rutas del addon
 resources/scripts/routers/routes.ts    añade la ruta y el nombre del menú
-resources/scripts/routers/ServerRouter.tsx   monta el guard que oculta el enlace
+resources/scripts/routers/ServerRouter.tsx   monta el guard del enlace lateral
 ```
 
 ### Si un parche falla
@@ -180,8 +180,22 @@ import WorldManagerGuard from '@/worldmanager/WorldManagerGuard'; // world-manag
 <WorldManagerGuard />{/* world-manager */}
 ```
 
-Sin este último parche el addon funciona igual, pero el enlace aparecerá también en
-servidores que no son de Minecraft (donde la página devolverá 404).
+Sin este último parche la página sigue funcionando por URL, pero no habrá enlace en la
+barra lateral y, en el panel estándar, la entrada aparecería también en servidores que no
+son de Minecraft (donde devolvería 404).
+
+### Cómo aparece el enlace en temas personalizados
+
+Muchos temas no construyen la barra lateral desde `routes.ts`, sino con su propia lista
+fija. Para esos casos `WorldManagerGuard` no parchea nada: localiza el grupo de navegación
+del tema (`[data-theme-layout-group="server:addons"]`, o el contenedor del enlace a
+*Files*), copia las clases de un item vecino e inyecta ahí un `NavLink` real mediante un
+portal de React. Así la entrada hereda el estilo del tema y sobrevive a sus
+actualizaciones. Un `MutationObserver` acotado a la barra lateral la vuelve a colocar si el
+tema repinta el menú.
+
+Si el panel ya dibuja la entrada por su cuenta (caso estándar, vía `routes.ts`), el guard
+lo detecta y no inyecta nada, así que nunca sale duplicada.
 
 ---
 
