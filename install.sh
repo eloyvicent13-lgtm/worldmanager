@@ -85,6 +85,14 @@ backup_assets() {
     if [ -d "$ASSET_BACKUP" ]; then
         return 0
     fi
+
+    # On an update the served assets already contain the addon, so they are not a
+    # clean baseline; keeping them would make a later uninstall restore addon code.
+    if grep -q "world-manager" "${PANEL_DIR}/routes/api-client.php" 2>/dev/null; then
+        warn "panel already patched - skipping the asset backup, an uninstall will rebuild instead"
+        return 0
+    fi
+
     mkdir -p "$ASSET_BACKUP"
     for item in assets mix-manifest.json build; do
         if [ -e "${PANEL_DIR}/public/${item}" ]; then
