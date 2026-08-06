@@ -48,8 +48,12 @@ else
     trap 'rm -rf "$CLEANUP_DIR"' EXIT
 
     info "Downloading ${REPO}@${REF}"
-    curl -fsSL "https://github.com/${REPO}/archive/refs/heads/${REF}.tar.gz" \
-        | tar -xz -C "$CLEANUP_DIR" --strip-components=1 \
+    fetch() {
+        curl -fsSL "https://github.com/${REPO}/archive/refs/$1/${REF}.tar.gz" \
+            | tar -xz -C "$CLEANUP_DIR" --strip-components=1 2>/dev/null
+    }
+    # WORLD_MANAGER_REF may be a branch or a release tag, so try both.
+    fetch heads || fetch tags \
         || fail "download failed. Check WORLD_MANAGER_REPO and WORLD_MANAGER_REF."
 
     SOURCE_DIR="$CLEANUP_DIR"
@@ -141,14 +145,18 @@ rollback() {
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
     if command -v yarn >/dev/null 2>&1; then
         info "Rebuilding the panel frontend (this takes a few minutes)"
-        yarn --cwd "$PANEL_DIR" install --frozen-lockfile >/dev/null 2>&1 \
-            || yarn --cwd "$PANEL_DIR" install >/dev/null 2>&1 || true
 
-        if ! (cd "$PANEL_DIR" && NODE_OPTIONS="--max-old-space-size=4096" yarn build:production); then
+        # Never run `yarn install`. The addon adds no dependencies - everything it
+        # imports already ships with the panel - and reinstalling would prune any
+        # package a theme installed outside package.json, breaking its build for
+        # good. Only compile.
+        if ! (cd "$PANEL_DIR" && NODE_OPTIONS="--max-old-space-size=4096" yarn build:production 2>&1 | tee "${STATE_DIR}/build.log"); then
+            warn "build failed, last lines of ${STATE_DIR}/build.log:"
+            tail -n 30 "${STATE_DIR}/build.log" >&2
             rollback
             fail "the frontend build failed. Your panel has been restored to its previous state."
         fi
-        ok "assets rebuilt"
+        ok "assets rebuilt (log: ${STATE_DIR}/build.log)"
     else
         warn "yarn not found - the sidebar entry will not appear until you run 'yarn build:production' in ${PANEL_DIR}"
     fi
